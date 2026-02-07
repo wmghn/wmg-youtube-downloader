@@ -1,5 +1,7 @@
-import ytdl from "@distube/ytdl-core";
+import ytdl, { createAgent, Cookie } from "@distube/ytdl-core";
 import { Readable } from "stream";
+import { readFileSync, existsSync } from "fs";
+import { join } from "path";
 
 export interface VideoInfo {
   id: string;
@@ -10,8 +12,18 @@ export interface VideoInfo {
   url: string;
 }
 
+function getAgent() {
+  const cookiesPath = join(process.cwd(), "cookies.json");
+  if (existsSync(cookiesPath)) {
+    const cookies: Cookie[] = JSON.parse(readFileSync(cookiesPath, "utf-8"));
+    return createAgent(cookies);
+  }
+  return undefined;
+}
+
 export async function getVideoInfo(url: string): Promise<VideoInfo> {
-  const info = await ytdl.getBasicInfo(url);
+  const agent = getAgent();
+  const info = await ytdl.getBasicInfo(url, { agent });
   const details = info.videoDetails;
   const duration = parseInt(details.lengthSeconds) || 0;
   const minutes = Math.floor(duration / 60);
@@ -32,8 +44,11 @@ export function getDownloadStream(
   url: string,
   format: "mp4" | "mp3"
 ): { stream: Readable; contentType: string } {
+  const agent = getAgent();
+
   if (format === "mp3") {
     const stream = ytdl(url, {
+      agent,
       filter: "audioonly",
       quality: "highestaudio",
     });
@@ -41,6 +56,7 @@ export function getDownloadStream(
   }
 
   const stream = ytdl(url, {
+    agent,
     filter: "audioandvideo",
     quality: "highest",
   });
