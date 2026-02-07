@@ -119,25 +119,19 @@ export default function Home() {
       });
 
       const res = await fetch(`/api/download?${params.toString()}`);
+      const data = await res.json();
+
       if (!res.ok) {
-        const errorText = await res.text();
-        throw new Error(errorText || "Download failed");
+        throw new Error(data.error || "Download failed");
       }
 
-      const blob = await res.blob();
-      const downloadUrl = URL.createObjectURL(blob);
-
-      const safeTitle = (video.title || "video")
-        .replace(/[^a-zA-Z0-9_\- ]/g, "")
-        .trim();
-
       const link = document.createElement("a");
-      link.href = downloadUrl;
-      link.download = `${safeTitle}.${video.format}`;
+      link.href = data.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      URL.revokeObjectURL(downloadUrl);
 
       setVideos((prev) =>
         prev.map((v) =>

@@ -1,8 +1,3 @@
-import ytdl, { createAgent, Cookie } from "@distube/ytdl-core";
-import { Readable } from "stream";
-import { readFileSync, existsSync } from "fs";
-import { join } from "path";
-
 export interface VideoInfo {
   id: string;
   title: string;
@@ -12,53 +7,63 @@ export interface VideoInfo {
   url: string;
 }
 
-function getAgent() {
-  const cookiesPath = join(process.cwd(), "cookies.json");
-  if (existsSync(cookiesPath)) {
-    const cookies: Cookie[] = JSON.parse(readFileSync(cookiesPath, "utf-8"));
-    return createAgent(cookies);
+function extractVideoId(url: string): string {
+  const urlObj = new URL(url);
+  if (urlObj.hostname.includes("youtu.be")) {
+    return urlObj.pathname.slice(1);
   }
-  return undefined;
+  return urlObj.searchParams.get("v") || "";
 }
 
 export async function getVideoInfo(url: string): Promise<VideoInfo> {
-  const agent = getAgent();
-  const info = await ytdl.getBasicInfo(url, { agent });
-  const details = info.videoDetails;
-  const duration = parseInt(details.lengthSeconds) || 0;
-  const minutes = Math.floor(duration / 60);
-  const seconds = duration % 60;
+  const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+  const res = await fetch(oembedUrl);
+
+  if (!res.ok) {
+    throw new Error("Failed to fetch video info");
+  }
+
+  const data = await res.json();
+  const videoId = extractVideoId(url);
 
   return {
-    id: details.videoId,
-    title: details.title,
-    thumbnail:
-      details.thumbnails[details.thumbnails.length - 1]?.url || "",
-    duration,
-    duration_string: `${minutes}:${seconds.toString().padStart(2, "0")}`,
+    id: videoId,
+    title: data.title,
+    thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+    duration: 0,
+    duration_string: "",
     url,
   };
 }
 
-export function getDownloadStream(
+export async function getDownloadUrl(
   url: string,
   format: "mp4" | "mp3"
-): { stream: Readable; contentType: string } {
-  const agent = getAgent();
+): Promise<string> {
+  const body =
+    format === "mp3"
+      ? { url, downloadMode: "audio", audioFormat: "mp3" }
+      : { url, videoQuality: "1080" };
 
-  if (format === "mp3") {
-    const stream = ytdl(url, {
-      agent,
-      filter: "audioonly",
-      quality: "highestaudio",
-    });
-    return { stream, contentType: "audio/mpeg" };
+  const res = await fetch("https://api.cobalt.tools/", {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || "Download service unavailable");
   }
 
-  const stream = ytdl(url, {
-    agent,
-    filter: "audioandvideo",
-    quality: "highest",
-  });
-  return { stream, contentType: "video/mp4" };
+  const data = await res.json();
+
+  if (data.status === "error") {
+    throw new Error(data.error?.code || "Download failed");
+  }
+
+  return data.url;
 }
